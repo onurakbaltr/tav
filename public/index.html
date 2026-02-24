@@ -112,6 +112,44 @@ body{
   100%{transform:rotateX(360deg)rotateY(360deg)scale(1)}
 }
 .ctrl-row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center;}
+
+/* ── ROLL OVERLAY (on board) ── */
+#rollOverlay{
+  position:absolute;
+  left:50%;top:50%;
+  transform:translate(-50%,-50%);
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  cursor:pointer;
+  z-index:10;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity .3s ease;
+}
+#rollOverlay.visible{
+  pointer-events:auto;
+  opacity:1;
+  animation:rollPulse 1.6s ease-in-out infinite;
+}
+@keyframes rollPulse{
+  0%,100%{transform:translate(-50%,-50%) scale(1);}
+  50%{transform:translate(-50%,-50%) scale(1.06);}
+}
+.roll-dice-icons{display:flex;gap:8px;filter:drop-shadow(0 0 14px rgba(255,215,0,.9));}
+.roll-label{
+  font-family:'Cinzel Decorative',serif;
+  font-size:clamp(10px,2.5vw,14px);
+  letter-spacing:3px;
+  color:var(--gold2);
+  text-shadow:0 0 16px rgba(255,215,0,.9),0 2px 4px #000;
+  background:rgba(0,0,0,.45);
+  padding:4px 14px;border-radius:20px;
+  border:1px solid rgba(212,175,55,.5);
+  backdrop-filter:blur(4px);
+}
+/* Dice row stays below board for rolled dice display */
+.dice-row{display:flex;align-items:center;justify-content:center;
+  gap:16px;margin-top:8px;width:var(--bw);}
+.dice-group{display:flex;gap:6px;align-items:center;}
 .conn-badge{display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.5);
   border:1px solid rgba(212,175,55,.3);border-radius:20px;padding:4px 12px;
   font-size:10px;font-family:'Cinzel',serif;color:rgba(212,175,55,.8);letter-spacing:1px;}
@@ -206,12 +244,21 @@ body{
   </div>
 
   <div class="status-bar" id="statusMsg">Yükleniyor...</div>
-  <div class="board-wrap"><canvas id="board"></canvas></div>
+  <div class="board-wrap">
+    <canvas id="board"></canvas>
+    <!-- Roll button overlay — shown on board when it's your turn to roll -->
+    <div id="rollOverlay" onclick="doRoll()">
+      <div class="roll-dice-icons">
+        <canvas id="overlayDie1" width="52" height="52" style="border-radius:9px;"></canvas>
+        <canvas id="overlayDie2" width="52" height="52" style="border-radius:9px;"></canvas>
+      </div>
+      <div class="roll-label">ZAR AT</div>
+    </div>
+  </div>
 
   <div class="dice-row"><div class="dice-group" id="diceGroup"></div></div>
 
   <div class="ctrl-row">
-    <button class="btn btn-g" id="btnRoll" onclick="doRoll()" disabled>🎲 ZAR AT</button>
     <button class="btn btn-w" onclick="undoMove()">↩ Geri</button>
     <button class="btn btn-r" onclick="leaveGame()">🚪 Çık</button>
     <div class="conn-badge"><div class="pdot" id="connDot"></div><span id="connLbl">BAĞLANIYOR</span></div>
@@ -447,9 +494,11 @@ function initGame() {
 // ── GAME ACTIONS ──────────────────────────────────────────
 function doRoll() {
   if (!G || G.rolled || G.gameOver) return;
+  if (vsAI && aiThinking) return;
   const isMyTurn = vsAI ? G.turn === 'white' : G.turn === myColor;
   if (!isMyTurn) return;
 
+  updateRollOverlay(false, G.turn); // hide immediately
   if (vsAI) {
     const d1=Math.ceil(Math.random()*6), d2=Math.ceil(Math.random()*6);
     G.rolledDice=[d1,d2];
@@ -522,7 +571,10 @@ function endTurnLocal() {
   selectedPoint=null; validMoves=[];
   updateDiceUI();
   renderGame();
-  if (vsAI && G.turn==='black' && !G.gameOver) setTimeout(aiTakeTurn, 600);
+  if (vsAI && G.turn==='black' && !G.gameOver) {
+    updateRollOverlay(false, 'black'); // AI rolls itself, no overlay
+    setTimeout(aiTakeTurn, 600);
+  }
 }
 
 function undoMove() {
@@ -689,6 +741,114 @@ function isHighest(from,color){
   return true;
 }
 
+// ── ROLL OVERLAY ─────────────────────────────────────────
+function updateRollOverlay(visible, turn) {
+  const ov = document.getElementById('rollOverlay');
+  if (!ov) return;
+  if (visible) {
+    ov.classList.add('visible');
+    // Draw two question-mark dice showing it's time to roll
+    drawOverlayDie('overlayDie1', turn==='white');
+    drawOverlayDie('overlayDie2', turn==='white');
+  } else {
+    ov.classList.remove('visible');
+  }
+}
+
+function drawOverlayDie(canvasId, isWhite) {
+  const cv = document.getElementById(canvasId);
+  if (!cv) return;
+  const c = cv.getContext('2d');
+  const S = 52;
+  c.clearRect(0,0,S,S);
+
+  // Background
+  const bg = c.createLinearGradient(0,0,S,S);
+  if(isWhite){
+    bg.addColorStop(0,'#f9f0e0'); bg.addColorStop(.5,'#e8d5b0'); bg.addColorStop(1,'#ede0c0');
+  } else {
+    bg.addColorStop(0,'#2a1a08'); bg.addColorStop(.5,'#180e04'); bg.addColorStop(1,'#221408');
+  }
+  c.fillStyle = bg;
+  c.roundRect(0,0,S,S,10); c.fill();
+
+  // Gold border glow
+  c.strokeStyle = 'rgba(212,175,55,.85)';
+  c.lineWidth = 2;
+  c.roundRect(1,1,S-2,S-2,9); c.stroke();
+
+  // Shimmer overlay
+  const sh = c.createRadialGradient(S*.3,S*.3,0,S*.5,S*.5,S*.7);
+  sh.addColorStop(0,'rgba(255,215,0,.18)');
+  sh.addColorStop(1,'rgba(255,215,0,0)');
+  c.fillStyle=sh; c.roundRect(0,0,S,S,10); c.fill();
+
+  // Draw a random pip pattern (1-6) — changes each frame for liveliness
+  const n = Math.floor(Date.now()/400) % 6 + 1;  // cycles 1-6
+  const PIPS = {
+    1:[[.5,.5]],
+    2:[[.28,.28],[.72,.72]],
+    3:[[.28,.28],[.5,.5],[.72,.72]],
+    4:[[.28,.28],[.72,.28],[.28,.72],[.72,.72]],
+    5:[[.28,.28],[.72,.28],[.5,.5],[.28,.72],[.72,.72]],
+    6:[[.28,.2],[.72,.2],[.28,.5],[.72,.5],[.28,.8],[.72,.8]]
+  };
+  const pips = PIPS[n];
+  const PR = S * 0.088;
+  for(const[px,py] of pips){
+    const cx=px*S, cy=py*S;
+    // shadow
+    c.beginPath(); c.arc(cx+1,cy+1,PR,0,Math.PI*2);
+    c.fillStyle='rgba(0,0,0,.35)'; c.fill();
+    // pip
+    const pg = c.createRadialGradient(cx-PR*.3,cy-PR*.35,0,cx,cy,PR);
+    if(isWhite){
+      pg.addColorStop(0,'#2a1a08'); pg.addColorStop(.6,'#100a04'); pg.addColorStop(1,'#060402');
+    } else {
+      pg.addColorStop(0,'#ffe090'); pg.addColorStop(.6,'#d4a030'); pg.addColorStop(1,'#806010');
+    }
+    c.beginPath(); c.arc(cx,cy,PR,0,Math.PI*2);
+    c.fillStyle=pg; c.fill();
+    // glint
+    c.beginPath(); c.arc(cx-PR*.28,cy-PR*.3,PR*.32,0,Math.PI*2);
+    c.fillStyle=isWhite?'rgba(255,255,255,.3)':'rgba(255,240,160,.25)'; c.fill();
+  }
+}
+
+// Animate overlay dice while visible
+let overlayAnimFrame = null;
+function startOverlayAnim() {
+  if(overlayAnimFrame) return;
+  const loop = () => {
+    const ov = document.getElementById('rollOverlay');
+    if(ov && ov.classList.contains('visible') && G) {
+      drawOverlayDie('overlayDie1', G.turn==='white');
+      drawOverlayDie('overlayDie2', G.turn==='white');
+      overlayAnimFrame = requestAnimationFrame(loop);
+    } else {
+      overlayAnimFrame = null;
+    }
+  };
+  overlayAnimFrame = requestAnimationFrame(loop);
+}
+
+// Patch updateRollOverlay to trigger animation
+const _origUpdateRollOverlay = updateRollOverlay;
+// (animation is started from renderGame via MutationObserver-free approach — 
+//  we'll hook it directly in updateRollOverlay below — redefine:)
+
+// Override to also start animation loop
+function updateRollOverlay(visible, turn) {
+  const ov = document.getElementById('rollOverlay');
+  if (!ov) return;
+  if (visible) {
+    ov.classList.add('visible');
+    startOverlayAnim();
+  } else {
+    ov.classList.remove('visible');
+  }
+}
+
 // ── CANVAS ────────────────────────────────────────────────
 const canvas=document.getElementById('board');
 const ctx=canvas.getContext('2d');
@@ -707,7 +867,8 @@ window.addEventListener('resize',()=>{if(G)resize();});
 function renderGame(){
   updateHUD();drawBoard();updateDiceUI();
   const myTurn=vsAI?(G.turn==='white'):(G.turn===myColor);
-  document.getElementById('btnRoll').disabled=G.rolled||G.gameOver||!myTurn||(vsAI&&aiThinking);
+  const canRollNow = !G.rolled && !G.gameOver && myTurn && !(vsAI&&aiThinking);
+  updateRollOverlay(canRollNow, G.turn);
   if(G.gameOver&&!document.getElementById('winModal').classList.contains('show'))showWinModal();
 }
 
