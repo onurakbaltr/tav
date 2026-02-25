@@ -256,7 +256,8 @@ body{
     </div>
   </div>
 
-  <div class="dice-row"><div class="dice-group" id="diceGroup"></div></div>
+  <!-- diceGroup kept for animation trigger only, hidden -->
+  <div style="display:none;"><div id="diceGroup"></div></div>
 
   <div class="ctrl-row">
     <button class="btn btn-w" onclick="undoMove()">↩ Geri</button>
@@ -900,6 +901,7 @@ function drawBoard(){
   drawFrame();drawFelt();drawPoints();
   drawCheckers();drawBarCheckers();
   drawHighlights();drawBorneOffIndicators();
+  drawDiceOnBoard();
 }
 
 function drawFrame(){
@@ -1077,6 +1079,135 @@ function drawHighlights(){
 function drawBorneOffIndicators(){
   if(G.borneOff.white>0){ctx.fillStyle='rgba(255,255,255,.68)';ctx.font='bold 10px Cinzel';ctx.textAlign='center';ctx.fillText(`✓ ${G.borneOff.white}`,W-MG*.5,H*.72);}
   if(G.borneOff.black>0){ctx.fillStyle='rgba(200,200,200,.68)';ctx.font='bold 10px Cinzel';ctx.textAlign='center';ctx.fillText(`✓ ${G.borneOff.black}`,MG*.5,H*.28);}
+}
+
+// ── DICE ON BOARD ─────────────────────────────────────────
+function drawDiceOnBoard(){
+  if(!G || !G.rolled || !G.rolledDice || !G.rolledDice.length) return;
+
+  const isWhiteTurn = G.turn === 'white';
+  const DS = Math.min(PW * 1.15, 44); // die size — fits nicely on board
+  const GAP = DS * 0.28;
+  const rolls = G.rolledDice;        // original roll (always 1 or 2 values)
+  const remaining = G.dice;          // dice still to play
+
+  // Position: white's dice → bottom-right of board (inside right panel)
+  //           black's dice → top-left of board (inside left panel)
+  const diceCount = Math.min(rolls.length, 4);
+  const totalW = diceCount * DS + (diceCount - 1) * GAP;
+
+  let startX, startY;
+  if(isWhiteTurn){
+    // Bottom right — right side of board, vertically centered in bottom half
+    startX = W - MG - totalW - DS*0.3;
+    startY = H * 0.72 - DS/2;
+  } else {
+    // Top left — left side of board, vertically centered in top half
+    startX = MG + DS*0.3;
+    startY = H * 0.28 - DS/2;
+  }
+
+  // Build display array: for doubles show 4 dice, for normal show 2
+  // rolls = [d1,d2], for doubles remaining starts at 4
+  const isDoubles = rolls.length === 2 && rolls[0] === rolls[1];
+  const displayDice = isDoubles
+    ? [rolls[0], rolls[0], rolls[0], rolls[0]]
+    : rolls;
+  const displayCount = displayDice.length;
+
+  // How many have been used
+  const originalCount = isDoubles ? 4 : rolls.length;
+  const usedCount = originalCount - remaining.length;
+
+  const totalW2 = displayCount * DS + (displayCount-1) * GAP;
+  if(isWhiteTurn) startX = W - MG - totalW2 - DS*0.3;
+  // for black startX stays the same
+
+  for(let i = 0; i < displayCount; i++){
+    const x = startX + i*(DS+GAP);
+    const y = startY;
+    const used = i < usedCount;
+    drawBoardDie(x, y, displayDice[i], isWhiteTurn, DS, used);
+  }
+}
+
+function drawBoardDie(x, y, n, isW, S, used){
+  ctx.save();
+  if(used) ctx.globalAlpha = 0.28;
+
+  // Drop shadow
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 3;
+
+  // Background
+  const bg = ctx.createLinearGradient(x, y, x+S, y+S);
+  if(isW){
+    bg.addColorStop(0,'#fdf5e2');
+    bg.addColorStop(.45,'#e8d5a8');
+    bg.addColorStop(1,'#d4b870');
+  } else {
+    bg.addColorStop(0,'#2e1c0a');
+    bg.addColorStop(.45,'#1a0e04');
+    bg.addColorStop(1,'#100a02');
+  }
+  const r = S * 0.18; // corner radius
+  ctx.fillStyle = bg;
+  ctx.beginPath(); ctx.roundRect(x, y, S, S, r); ctx.fill();
+
+  ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+
+  // Border
+  ctx.strokeStyle = isW ? 'rgba(180,140,60,.7)' : 'rgba(100,65,20,.7)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(x, y, S, S, r); ctx.stroke();
+
+  // Gold border glow if not used
+  if(!used){
+    ctx.strokeStyle = isW ? 'rgba(212,175,55,.35)' : 'rgba(212,175,55,.25)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(x+1, y+1, S-2, S-2, r-1); ctx.stroke();
+  }
+
+  // Inner highlight (top-left)
+  const hl = ctx.createLinearGradient(x, y, x+S*.5, y+S*.5);
+  hl.addColorStop(0, isW ? 'rgba(255,255,255,.32)' : 'rgba(255,255,255,.08)');
+  hl.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = hl;
+  ctx.beginPath(); ctx.roundRect(x, y, S, S, r); ctx.fill();
+
+  // Pips
+  const PIPS = {
+    1:[[.5,.5]],
+    2:[[.28,.28],[.72,.72]],
+    3:[[.28,.28],[.5,.5],[.72,.72]],
+    4:[[.28,.28],[.72,.28],[.28,.72],[.72,.72]],
+    5:[[.28,.28],[.72,.28],[.5,.5],[.28,.72],[.72,.72]],
+    6:[[.28,.2],[.72,.2],[.28,.5],[.72,.5],[.28,.8],[.72,.8]]
+  };
+  const pips = PIPS[n] || PIPS[1];
+  const PR = S * 0.09;
+
+  for(const [px,py] of pips){
+    const cx = x + px*S, cy = y + py*S;
+    // Pip shadow
+    ctx.beginPath(); ctx.arc(cx+1, cy+1, PR, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fill();
+    // Pip body
+    const pg = ctx.createRadialGradient(cx-PR*.3, cy-PR*.35, 0, cx, cy, PR);
+    if(isW){
+      pg.addColorStop(0,'#2a1a08'); pg.addColorStop(.6,'#100a04'); pg.addColorStop(1,'#060402');
+    } else {
+      pg.addColorStop(0,'#ffe090'); pg.addColorStop(.6,'#d4a030'); pg.addColorStop(1,'#806010');
+    }
+    ctx.beginPath(); ctx.arc(cx, cy, PR, 0, Math.PI*2);
+    ctx.fillStyle = pg; ctx.fill();
+    // Glint
+    ctx.beginPath(); ctx.arc(cx-PR*.28, cy-PR*.3, PR*.32, 0, Math.PI*2);
+    ctx.fillStyle = isW ? 'rgba(255,255,255,.3)' : 'rgba(255,240,160,.25)'; ctx.fill();
+  }
+
+  ctx.restore();
 }
 
 // ── CLICK / TOUCH ─────────────────────────────────────────
